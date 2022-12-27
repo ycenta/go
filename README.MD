@@ -21,6 +21,17 @@ CREATE TABLE "public"."product" (
     CONSTRAINT "product_pkey" PRIMARY KEY ("id")
 ) WITH (oids = false);
 
+
+CREATE SEQUENCE payment_id_seq INCREMENT 1 MINVALUE 1 MAXVALUE 2147483647 CACHE 1;
+
+CREATE TABLE "public"."payment" (
+    "id" integer DEFAULT nextval('product_id_seq') NOT NULL,
+    "productId" integer NOT NULL,
+    "pricePaid" float NOT NULL,
+    "createdAt" time without time zone NOT NULL,
+    "updatedAt" time without time zone NOT NULL,
+    CONSTRAINT "payment_pkey" PRIMARY KEY ("id")
+) WITH (oids = false);
 ```
     
     
