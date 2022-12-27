@@ -271,16 +271,28 @@ func createPayment(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// check if product exists
+		getRequest := "SELECT * FROM product WHERE id = $1"
+		product, err := db.Query(getRequest, productId)
+		if err != nil {
+			fmt.Print("error")
+		}
+		// if not, return message and stop
+		if !product.Next() {
+			http.Error(w, "Product does not exist (ID: "+productId+")", http.StatusBadRequest)
+			return
+		}
+
 		// create payment request
 		req := "INSERT INTO payment (\"productId\", \"pricePaid\", \"createdAt\", \"updatedAt\") VALUES ($1, $2, $3, $4) RETURNING id"
 		rows, err := db.Query(req, productId, pricePaid, time.Now(), time.Now())
 		if err != nil {
-			fmt.Print("error creating payment")
+			fmt.Print("Error while creating payment")
 		}
 
 		defer rows.Close()
 
-		// get payment id
+		// loop through payment rows
 		for rows.Next() {
 			var id int
 			err = rows.Scan(&id)
@@ -398,7 +410,7 @@ func getPaymentById(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 			var updatedAt time.Time
 			err = rows.Scan(&id, &productId, &pricePaid, &createdAt, &updatedAt)
 			if err != nil {
-				fmt.Fprintf(w,"No payment was found with the ID: %d", idPayment)
+				fmt.Fprintf(w, "No payment was found with the ID: %d", idPayment)
 			}
 			fmt.Fprintf(w, "Payment Found !\n=====================\nPayment ID: %d \nProduct ID: %d \nPrice Paid: %s \nCreated At: %s \nUpdated At: %s", id, productId, pricePaid, createdAt, updatedAt)
 			return
