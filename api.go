@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -260,11 +261,23 @@ func createPayment(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 		productId := r.FormValue("productId")
 		pricePaid := r.FormValue("pricePaid")
 
-		// inputs emptyness check
+		// check inputs emptyness
 		if productId == "" || pricePaid == "" {
-			http.Error(w, "Missing product Id or price paid", http.StatusBadRequest)
+			http.Error(w, "Missing productId("+productId+") or pricePaid("+pricePaid+")", http.StatusBadRequest)
 			return
 		}
+
+		// check if productId is not an int
+		_, errProduct := strconv.Atoi(productId)
+
+		// check if pricePaid is not a float
+		_, errPrice := strconv.ParseFloat(pricePaid, 64)
+
+		if errProduct != nil || errPrice != nil {
+			http.Error(w, "productId("+productId+") and pricePaid("+pricePaid+") must be numbers (int/float)", http.StatusBadRequest)
+			return
+		}
+
 		// check if POST method
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -272,8 +285,8 @@ func createPayment(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// check if product exists
-		getRequest := "SELECT * FROM product WHERE id = $1"
-		product, err := db.Query(getRequest, productId)
+		productReq := "SELECT * FROM product WHERE id = $1"
+		product, err := db.Query(productReq, productId)
 		if err != nil {
 			fmt.Print("error")
 		}
@@ -287,7 +300,7 @@ func createPayment(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 		req := "INSERT INTO payment (\"productId\", \"pricePaid\", \"createdAt\", \"updatedAt\") VALUES ($1, $2, $3, $4) RETURNING id"
 		rows, err := db.Query(req, productId, pricePaid, time.Now(), time.Now())
 		if err != nil {
-			fmt.Print("Error while creating payment")
+			fmt.Print("Error while creating payment (ID: " + productId + ")")
 		}
 
 		defer rows.Close()
@@ -297,7 +310,7 @@ func createPayment(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 			var id int
 			err = rows.Scan(&id)
 			if err != nil {
-				fmt.Print("No payment was created")
+				fmt.Print("No payment was created (ID: " + productId + ")")
 			}
 			fmt.Fprintf(w, "Payment Created !\n=====================\nPayment ID: %d\nProduct ID: %s\nPrice Paid: %s", id, productId, pricePaid)
 		}
@@ -396,7 +409,7 @@ func getPaymentById(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 		req := "SELECT * FROM payment WHERE id = $1"
 		rows, err := db.Query(req, idPayment)
 		if err != nil {
-			fmt.Print("Error getting payment")
+			fmt.Print("Error getting payment with ID: ", idPayment)
 		}
 
 		defer rows.Close()
@@ -415,7 +428,7 @@ func getPaymentById(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, "Payment Found !\n=====================\nPayment ID: %d \nProduct ID: %d \nPrice Paid: %s \nCreated At: %s \nUpdated At: %s", id, productId, pricePaid, createdAt, updatedAt)
 			return
 		}
-		fmt.Fprintf(w, "no payment was found")
+		fmt.Fprintf(w, "No payment was found with ID: %s", idPayment)
 	}
 
 }
@@ -433,7 +446,7 @@ func getAllPayments(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 		getRequest := "SELECT * FROM payment"
 		rows, err := db.Query(getRequest)
 		if err != nil {
-			fmt.Print("Error")
+			fmt.Print("Error getting all payments")
 		}
 
 		defer rows.Close()
@@ -447,7 +460,7 @@ func getAllPayments(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 
 			err = rows.Scan(&id, &productId, &pricePaid, &createdAt, &updatedAt)
 			if err != nil {
-				fmt.Print("No payment was found")
+				fmt.Print("No payment was found in DB")
 			}
 
 			// Data display
