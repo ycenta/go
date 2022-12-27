@@ -37,7 +37,12 @@ CREATE TABLE "public"."product" (
 * **GET** /products     -> besoin de rien (envie de toi)
 
 ### Payement
-La même chose mais c'est pas fini
+
+* **POST** localhost:3333/payment       -> Pour créer un payment, besoin de form fields : productId, pricePaid
+* **GET** localhost:3333/payment/{id}   -> Pour obtenir un payment, besoin d'url param : id (int)
+* **PUT** localhost:3333/payment/{id}/update    -> Pour update un payment, besoin de l'url param :id (int), et  form fields : productId, pricePaid
+* **DELETE** localhost:3333/payment/{id}/delete     -> Pour supprimer un payment, besoin de l'url param :id
+* **GET** /payments     -> Pour lister tous les payments
 
 ## todo
 * Créer un routeur (un peu mieux qu'en dur comme j'ai fait, histoire d'avoir un code propre), au final j'ai utilisé mux, bien plus pratique que tout faire en vanilla
