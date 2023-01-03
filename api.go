@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -49,6 +50,87 @@ type Payment struct {
 	UpdatedAt time.Time
 }
 
+// DEBUT BLOC BROADCASTER
+
+type Broadcaster interface {
+	Register(chan<- interface{})
+	Unregister(chan<- interface{})
+	Close() error
+	Submit(interface{}) bool
+}
+
+type broadcaster struct {
+	input   chan interface{}
+	reg     chan chan<- interface{}
+	unreg   chan chan<- interface{}
+	outputs map[chan<- interface{}]bool
+}
+
+func (bc *broadcaster) broadcast(p interface{}) {
+	for ch := range bc.outputs {
+		ch <- p
+	}
+}
+
+func (bc *broadcaster) run() {
+	for {
+		select {
+		case p := <-bc.input:
+			bc.broadcast(p)
+		case ch, ok := <-bc.reg:
+			if ok {
+				bc.outputs[ch] = true
+			} else {
+				return
+			}
+		case ch := <-bc.unreg:
+			delete(bc.outputs, ch)
+		}
+	}
+}
+
+func NewBroadcaster(bufflen int) Broadcaster {
+	b := &broadcaster{
+		input:   make(chan interface{}, bufflen),
+		reg:     make(chan chan<- interface{}),
+		unreg:   make(chan chan<- interface{}),
+		outputs: make(map[chan<- interface{}]bool),
+	}
+
+	go b.run()
+
+	return b
+
+}
+
+func (bc *broadcaster) Register(listener chan<- interface{}) {
+	bc.reg <- listener
+}
+
+func (bc *broadcaster) Unregister(listener chan<- interface{}) {
+	bc.unreg <- listener
+}
+
+func (bc *broadcaster) Close() error {
+	close(bc.reg)
+	close(bc.unreg)
+	return nil
+}
+
+func (bc *broadcaster) Submit(p interface{}) bool {
+	if bc == nil {
+		return false
+	}
+	select {
+	case bc.input <- p:
+		return true
+	default:
+		return false
+	}
+}
+
+// FIN BLOC BROADCASTER
+
 func main() {
 
 	// Pour info, pour pouvoir utiliser l'objet db, il faut le passer dans les handlers, mais les fonctions utilisent des closures parce que c'est plus simple pour acceder à la variable db
@@ -63,6 +145,10 @@ func main() {
 	fmt.Println("Connected to database")
 	defer db.Close()
 
+	// On init le broadcaster (go routine directement dans le constructeur)
+	bc := NewBroadcaster(10)
+	// fmt.Println(bc)
+
 	// Nos routes & endpoints API
 	r := mux.NewRouter()
 	r.HandleFunc("/", getRoot)
@@ -74,11 +160,13 @@ func main() {
 	r.HandleFunc("/product/{id}/delete", deleteProduct(db))
 	r.HandleFunc("/products", getAllProducts(db))
 
-	r.HandleFunc("/payment", createPayment(db))
+	r.HandleFunc("/payment", createPayment(db, bc))
 	r.HandleFunc("/payment/{id:[0-9]+}", getPaymentById(db))
-	r.HandleFunc("/payment/{id}/update", updatePayment(db))
+	r.HandleFunc("/payment/{id}/update", updatePayment(db, bc))
 	r.HandleFunc("/payment/{id}/delete", deletePayment(db))
 	r.HandleFunc("/payments", getAllPayments(db))
+
+	r.HandleFunc("/payment/stream", Stream(bc))
 
 	// On lance le serveur
 	err = http.ListenAndServe(":3333", r)
@@ -253,7 +341,7 @@ func getAllProducts(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 }
 
 // DEBUT Functions CRUD pour le Payment
-func createPayment(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
+func createPayment(db *sql.DB, bc Broadcaster) func(w http.ResponseWriter, r *http.Request) {
 
 	return func(w http.ResponseWriter, r *http.Request) { // closure pour pouvoir utiliser la variable db
 
@@ -312,12 +400,15 @@ func createPayment(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				fmt.Print("No payment was created (ID: " + productId + ")")
 			}
+
+			bc.Submit(id)
+
 			fmt.Fprintf(w, "Payment Created !\n=====================\nPayment ID: %d\nProduct ID: %s\nPrice Paid: %s", id, productId, pricePaid)
 		}
 	}
 }
 
-func updatePayment(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
+func updatePayment(db *sql.DB, bc Broadcaster) func(w http.ResponseWriter, r *http.Request) {
 
 	return func(w http.ResponseWriter, r *http.Request) {
 
@@ -468,4 +559,24 @@ func getAllPayments(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+}
+
+func Stream(bc Broadcaster) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		listener := make(chan interface{})
+		bc.Register(listener)
+
+		wg := sync.WaitGroup{}
+		wg.Add(2)
+
+		go func() {
+			for p := range listener {
+				fmt.Fprintf(w, "Payment: %v\n\n", p)
+				wg.Done()
+			}
+
+			// bc.Unregister(listener)
+		}()
+		wg.Wait()
+	}
 }
